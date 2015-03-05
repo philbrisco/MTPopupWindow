@@ -1,3 +1,4 @@
+// The MTPopupWindow class library is licensed under the terms of the Creative Commons 0 (CC0) license
 //
 // MTPopupWindow is a Swift port of Marin Todorov's Objective-C class library of the same name.  This port
 // consists of one file designed to be dropped directly into a project and used without worrying about
