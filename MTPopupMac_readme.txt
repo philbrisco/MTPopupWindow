@@ -52,15 +52,16 @@ func mainHelp () {
     
     let winPop = MTPopupWindow()
     let view: NSView = (NSApplication.shared.keyWindow?.contentView)!
+
     view.wantsLayer = true
-    winPop.closeBtnTopInset = 15     // Push button down
+    winPop.closeBtnTopInset = 15    // Push down button to avoid status bar
     winPop.closeBtnRightInset = 15   // Push button to left
     winPop.clickBtnSound(fileName: "click", fileType: "wav")
+    winPop.clickBtnSwoosh(fileName: "swoosh", fileType: "wav")
     winPop.fileName = String(htmlFile)
     winPop.insetH = 0               // Offset for navigation bar
     winPop.insetW = 0               // Offset for width of window.        
-    winPop.showInView(v: view)
-    swooshPlayer.play()
+    winPop.show()
 }
 
 The function checks to see what the title of the current window is, then uses
@@ -80,18 +81,19 @@ being 5.
 This port is better than the IOS ports and is technically more sophisticated,
 but it is still version 1 for OSX.
 --------------------------------------------------
-Known issues:
+Fixes:
 
-When having multiple windows on the screen at any one time with the help
-view running on each window, the dismissal of said help won't be in the expected
-order (with the key window help disappearing first).  This is related to an
-issue with addLocalMonitorForEvents.  I initially thought that it was handling
-events per window, but it turns out that it is handling them per application.
-It still dismisses all the windows it should but not just in the expected way.
-Oh well...
+2.1 Phillip Brisco
+Fixed bug that dismissed the help screens (with multiple windows on screen) in
+an unexpected random order.  Now the help screen of the key window is closed
+while all other help screens are left untouched.
 
-Multiple help views can be loaded on a window.  This results in the necessity
-of dismissing each one before you can see the original window.  Unless you just
-dismiss the window, then redisplay it.  This is not a bad bug and, in fact,
-I'm not totally sure it is one.  At any rate, it would probably be rare that
-this one happens and is easily dealt with.
+2.1 Phillip Brisco
+Fixed issue with multiple help screens being loaded into a window.  Now there
+is only one help screen per window.
+
+2.1 Phillip Brisco
+Made most of the non-interfacing functions private, variables private and
+lasses fileprivate to increase the security of MTPopup  Probably not all that
+necessary except in the case of the monitor.  We don't want that one
+tromped on by or tromping other monitors.

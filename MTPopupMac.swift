@@ -4,15 +4,34 @@
 //
 //  Created by Phillip Brisco on 12/29/20.
 //
-// Ported MTPopup from IOS to OSX and improved it
+// Ported MTPopup from IOS to OSX.
+//
+// The MTPopupMac view is an NSView version of MTPopup for UIView and IOS.  It
+// popups an overlay view that contains a rendered HTML file or URL.  This is very
+// good for putting help files on each screen in an easily read format.
+//
+// This very usefule (IMHO) class was originally created by Marin Todorov in
+// Objective-C several years ago.  I ported it to swift in IOS (and let him see
+// what I had done).  I've kept up with it (more or less) ever since.
+//
+// This version took care of the following issues:
+//
+//  2.1
+//  multiple help screens were allowed to be displayed in each window.  This has been
+//  fixed.  Only one help screen per window is allowed.
+//
+//  2.1
+//  Issue with dismissing of help screens (when multiple windows were displaying help
+//  screens) in a random or unexpected order has been fixed.  Now only the key
+//  window help is dismissed.
+//
+//  2.1
+//  Shut down access to non-interfacing functions, classes and variables by making
+//  them private or fileprivate.
 
-import Foundation
 import WebKit
 import Cocoa
 import AVFoundation
-import QuartzCore
-import AppKit
-import CoreGraphics
 
 @objc protocol MTPopupWindowDelegate {
     @objc optional func willShowMTPopupWindow(sender  : MTPopupWindow);
@@ -26,7 +45,7 @@ let kDefaultMargin : CGFloat     = 0
 var kWindowMarginSize            = CGSize()
 
 // Set up event handler to take care of local keydown events.
-public class MTEventMonitor {
+fileprivate class MTEventMonitor {
     
     private var monitor: Any?
     private let mask: NSEvent.EventTypeMask
@@ -66,7 +85,8 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
     private var dimView     : NSView?
     private var bgView      : NSView?
     private var loader      = NSProgressIndicator()
-    private var audioClick  : AVAudioPlayer? = nil;
+    private var audioClick  : AVAudioPlayer? = nil
+    private var audioSwoosh  : AVAudioPlayer? = nil
     private var btnClose    = MTPopupWindowCloseButton()
     private var theText     = NSTextField(frame: NSMakeRect(20, 20, 200, 40))
     var insetW: CGFloat = 0
@@ -81,54 +101,61 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+
         theText.delegate = self
         loader.removeFromSuperview()
         setupUI()
         locEventHandler = MTEventMonitor(mask: [.keyDown], handler: { (NSEvent) -> NSEvent? in
-            self.closePopupWindow()
-            self.locEventHandler?.stop()
             
-            // Command-q (quit).  While an NSEvent returning the keycode of 12
-            // ("q") won't hurt anything, it is better to return nil instead.
-            // This is why the modifier is tested.  We want to pass the modified
-            // key.
-            if NSEvent.keyCode == 12 && NSEvent.modifierFlags.rawValue > 256 {
+            // Allow any non-modified key (command, shift, option, control, functio,)
+            // etc.) key to ONLY disappear the help screen.
+            if NSEvent.modifierFlags.rawValue > 256 {
                 return NSEvent
             } else {
-                return nil
+
+                // Only close the help if this is the key window, otherwise just
+                // pass the event to the window controller to do it's magic.
+                if (self.window?.isKeyWindow)! {
+                    self.closePopupWindow()
+                    self.locEventHandler?.stop()
+                    return nil
+                } else {
+                    return NSEvent
+                }
+
             }
         })
         locEventHandler?.start()
     }
     
-    func initialize () {
+    private func initialize () {
         _ = CGSize (width: kDefaultMargin, height: kDefaultMargin)
     }
     
-    func setWindowMargin (margin : CGSize) {
+    private func setWindowMargin (margin : CGSize) {
         kWindowMarginSize = margin;
     }
     
-    func showWindowWithHTMLFile (fileName : String) -> MTPopupWindow {
+    private func showWindowWithHTMLFile (fileName : String) -> MTPopupWindow {
         let view : NSView =
             NSApplication.shared.windows.filter {$0.isKeyWindow}.first!.contentView!
         view.wantsLayer = true
         return self.showWindowWithHtmlFile(fileName: fileName, insideView: view)
     }
     
-    func showWindowWithHtmlFile (fileName: String, insideView: NSView) -> MTPopupWindow {
+    private func showWindowWithHtmlFile (fileName: String, insideView: NSView) -> MTPopupWindow {
         
         let popup : MTPopupWindow = initWithFile (fName: fileName as NSString) as! MTPopupWindow
 
         return popup
     }
 
-    func initWithFile (fName : NSString) -> AnyObject {
+    private func initWithFile (fName : NSString) -> AnyObject {
         self.fileName = fName as String;
         return MTPopupWindow();
     }
     
-    func setupUI () {
+    private func setupUI () {
         webView.wantsLayer = true
         webView.layer?.borderWidth = 5.0
         webView.layer?.borderColor = NSColor.black.cgColor;
@@ -138,7 +165,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         webView.alphaValue = 1.0
     }
 
-    func showAlert (_ message: String, details: String) {
+    private func showAlert (_ message: String, details: String) {
         guard let mySelf = NSApplication.shared.mainWindow else { return }
         if NSApp.keyWindow != nil {
             let alert = NSAlert()
@@ -148,13 +175,10 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
             alert.icon = NSImage(named: "wickedWitch")
             alert.window.minSize = .init(width: 480, height: 200)
             errorPlayer.play()
+            closePopupWindow()
             
             alert.beginSheetModal(for: mySelf, completionHandler: { response in
-                
-                if self.audioClick != nil {
-                    self.playClickSound()
-                }
-
+                self.playClickSound()
             })
         }
     }
@@ -163,11 +187,11 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         showAlert("Webview Error", details: "The requested document cannot be loaded, try again later.")
     }
     
-    func showInView (v:NSView) {
+    private func showInView (v:NSView) {
         dimView = NSView();
+        dimView?.identifier = NSUserInterfaceItemIdentifier(rawValue: "MTPopup")
         v.addSubview(dimView!)
         dimView!.layoutMaximizeInView(v: v, inset: 0)
-        
         
         bgView = NSView();
         v.addSubview(bgView!);
@@ -258,11 +282,26 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
     
     func show () {
         let view: NSView = (NSApplication.shared.keyWindow?.contentView)!
-         self.showInView(v: view)
+
+        for subView in view.subviews {
+
+            if subView.identifier!
+                .rawValue == "MTPopup" {
+                audioClick = nil
+                print ("gothereno")
+                closePopupWindow()
+                return
+            }
+
+        }
+        
+        print ("gothere maybe")
+        self.playClickSwoosh()
+        self.showInView(v: view)
     }
     
-    func animatePopup (v : NSView) {
-    let fauxView = NSView();
+    private func animatePopup (v : NSView) {
+        let fauxView = NSView();
         
         fauxView.wantsLayer = true
         fauxView.layer?.backgroundColor = NSColor.red.cgColor
@@ -308,9 +347,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
             delegate!.willCloseMTPopupWindow!(sender: self)
         }
         
-        if (audioClick != nil) {
-            playClickSound()
-        }
+        playClickSound()
 
         NSAnimationContext.runAnimationGroup({ context in
             let rotation = CABasicAnimation(keyPath: "transform")
@@ -338,7 +375,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
             self.locEventHandler?.stop()
 
             if (self.responds(to: #selector(MTPopupWindowDelegate.didCloseMTPopupWindow(sender:)))) {
-                self.delegate!.didCloseMTPopupWindow!(sender: self)
+                    self.delegate!.didCloseMTPopupWindow!(sender: self)
             }
 
         })
@@ -404,17 +441,48 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
          }
      }
     
-    func playClickSound () {
+    private func playClickSound () {
 
         if (audioClick != nil && !audioClick!.isPlaying) {
             audioClick!.play();
         }
         
     }
+    
+    // Set up swoosh sound
+    func clickBtnSwoosh (fileName: String?, fileType: String?) {
+         
+         if (fileName != nil && fileType != nil) {
+            guard let filePath : String =  Bundle.main.path(forResource: fileName!, ofType: fileType!) else {return}
+                 
+            guard let fileUrl: NSURL = NSURL.fileURL(withPath: filePath) as NSURL? else {return}
+                     
+            if (audioSwoosh == nil) {
+                do {
+                    try audioSwoosh = AVAudioPlayer(contentsOf: (fileUrl) as URL)
+                    audioSwoosh!.numberOfLoops = 0;
+                    audioSwoosh!.prepareToPlay();
+                } catch let error {
+                    showAlert("Sound Error", details: error.localizedDescription)
+                }
+                    
+            }
+                                      
+         }
+     }
+    
+    private func playClickSwoosh () {
+
+        if (audioSwoosh != nil && !audioSwoosh!.isPlaying) {
+            audioSwoosh!.play();
+        }
+        
+    }
+    
 }
 
 // Layout constraints for close button.
-class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
+fileprivate class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
     var closeBtnTopInset: CGFloat = 0
     var closeBtnRightInset: CGFloat = 0
     
@@ -478,7 +546,7 @@ class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
     
 }
 
-extension NSView {
+fileprivate extension NSView {
 
     func layoutMaximizeInView (v : NSView, inset : CGFloat) {
         self.layoutMaximizeInView (v: v, insetSize: CGSize(width: inset, height: inset))
