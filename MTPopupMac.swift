@@ -16,18 +16,23 @@
 //
 // This version took care of the following issues:
 //
-//  2.1
+//  2.1 01/04/2021
 //  multiple help screens were allowed to be displayed in each window.  This has been
 //  fixed.  Only one help screen per window is allowed.
 //
-//  2.1
+//  2.1 01/04/2021
 //  Issue with dismissing of help screens (when multiple windows were displaying help
 //  screens) in a random or unexpected order has been fixed.  Now only the key
 //  window help is dismissed.
 //
-//  2.1
+//  2.1 01/04/2021
 //  Shut down access to non-interfacing functions, classes and variables by making
 //  them private or fileprivate.
+//
+// 2.2  01/06/2021
+// Made the close button more springier.  Looks a whole lot better.  Got rid of a
+// lot of debug and extraneous code.
+//
 
 import WebKit
 import Cocoa
@@ -72,6 +77,7 @@ fileprivate class MTEventMonitor {
     }
 }
 
+// The main class for this project.
 class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDelegate, NSTextFieldDelegate {
 
     override var acceptsFirstResponder: Bool {
@@ -89,21 +95,21 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
     private var audioSwoosh  : AVAudioPlayer? = nil
     private var btnClose    = MTPopupWindowCloseButton()
     private var theText     = NSTextField(frame: NSMakeRect(20, 20, 200, 40))
+    private var locEventHandler: MTEventMonitor?
     var insetW: CGFloat = 0
     var insetH: CGFloat = 0
     var closeBtnTopInset: CGFloat = 0
     var closeBtnRightInset: CGFloat = 0
-    private var locEventHandler: MTEventMonitor?
     
     required init(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override init(frame: CGRect) {
+    override init(frame: NSRect) {
         super.init(frame: frame)
 
+        theText.wantsLayer = true
         theText.delegate = self
-        loader.removeFromSuperview()
         setupUI()
         locEventHandler = MTEventMonitor(mask: [.keyDown], handler: { (NSEvent) -> NSEvent? in
             
@@ -128,6 +134,12 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         locEventHandler?.start()
     }
     
+    private func setupUI () {
+        self.wantsLayer = true
+        webView.wantsLayer = true
+    }
+
+
     private func initialize () {
         _ = CGSize (width: kDefaultMargin, height: kDefaultMargin)
     }
@@ -155,16 +167,6 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         return MTPopupWindow();
     }
     
-    private func setupUI () {
-        webView.wantsLayer = true
-        webView.layer?.borderWidth = 5.0
-        webView.layer?.borderColor = NSColor.black.cgColor;
-        webView.layer?.cornerRadius = 20.0
-        webView.layer?.backgroundColor = NSColor.orange.cgColor
-        webView.layer?.masksToBounds = true
-        webView.alphaValue = 1.0
-    }
-
     private func showAlert (_ message: String, details: String) {
         guard let mySelf = NSApplication.shared.mainWindow else { return }
         if NSApp.keyWindow != nil {
@@ -194,21 +196,22 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         dimView!.layoutMaximizeInView(v: v, inset: 0)
         
         bgView = NSView();
+        bgView?.wantsLayer = true
         v.addSubview(bgView!);
         bgView?.layoutMaximizeInView(v: v, insetH: insetH, insetW: insetW)
  
-        self.wantsLayer = true
         self.addSubview(webView);
-
-        self.webView.layer?.backgroundColor = .black
+        
+        self.webView.layer?.borderWidth = 5
         self.webView.layer?.borderColor = NSColor.red.cgColor
+        self.webView.layer?.cornerRadius = 45.0
+        self.webView.layer?.masksToBounds = true
         self.webView.alphaValue = 1.0
         self.webView.uiDelegate = self;
         self.webView.navigationDelegate = self
         self.webView.layoutMaximizeInView(v: self, inset: 0)
 
         if fileName[..<fileName.index(fileName.startIndex, offsetBy: 4)] == "http" {
-
             // Load Internet web page
             loader.style = .spinning
             self.addSubview(loader)
@@ -250,7 +253,6 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         btnStuff.closeBtnTopInset = closeBtnTopInset  // offsets from the top
         btnStuff.closeBtnRightInset = closeBtnRightInset // Ofset from the right
         btnClose = btnStuff.buttonInView(v: webView) as! MTPopupWindowCloseButton
-                
         btnClose.target = self
         btnClose.action = #selector(MTPopupWindow.closePopupWindow)
              
@@ -260,7 +262,6 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         let theY = btnClose.frame.maxY
         let theRect = CGRect(x: theX, y: theY - 20, width: theWidth, height: theHeight)
         btnClose.frame = theRect
-
         self.addSubview(theText)
 
         // Sort of a hack here, but I wasn't able to get the underlying view's
@@ -270,7 +271,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         // The red color is for debugging purposes and won't be seen by the
         // user as it is hidden.
         theText.backgroundColor = NSColor.red
-            
+
         DispatchQueue.main.async {
             self.theText.isHidden = true
             self.theText.becomeFirstResponder()
@@ -280,40 +281,56 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         animatePopup(v: self)
     }
     
+    // The main entry routine.
     func show () {
         let view: NSView = (NSApplication.shared.keyWindow?.contentView)!
 
+        // Ensure that the help does not already exist.
         for subView in view.subviews {
 
             if subView.identifier!
                 .rawValue == "MTPopup" {
                 audioClick = nil
-                print ("gothereno")
                 closePopupWindow()
                 return
             }
 
         }
         
-        print ("gothere maybe")
         self.playClickSwoosh()
         self.showInView(v: view)
+    }
+    
+    // Designed to animate simple class properties.  Won't do the more complex stuff
+    // like transforms.
+    private func simpleAnimateLayer <Value>(_ keyPath: WritableKeyPath<CALayer, Value>, from startValue: Value, to value: Value, duration: CFTimeInterval) {
+        let keyString = NSExpression(forKeyPath: keyPath).keyPath
+        let animation = CABasicAnimation (keyPath: keyString)
+        animation.fromValue = startValue
+        animation.toValue = value
+        animation.duration = duration
+        self.layer?.add(animation, forKey: animation.keyPath)
     }
     
     private func animatePopup (v : NSView) {
         let fauxView = NSView();
         
         fauxView.wantsLayer = true
-        fauxView.layer?.backgroundColor = NSColor.red.cgColor
         bgView?.addSubview(fauxView);
-        bgView?.wantsLayer = true
-        bgView?.layer?.backgroundColor = .clear
         bgView?.alphaValue = 1.0
         fauxView.layoutMaximizeInView(v: bgView!, inset: kDefaultMargin)
-        fauxView.layer?.backgroundColor = NSColor.brown.cgColor
-        fauxView.alphaValue = 1.0
-
+        self.layer?.removeAllAnimations()
+        
+        dimView?.setValue(NSColor.clear, forKey: "backgroundColor")
+        webView.setValue(NSColor.clear, forKey: "backgroundColor")
+        bgView?.setValue(NSColor.clear, forKey: "backgroundColor")
+        webView.setValue(NSColor.clear, forKey: "backgroundColor")
+        fauxView.setValue(NSColor.clear, forKey: "backgroundColor")
+        self.setValue(NSColor.clear, forKey: "backgroundColor")
+        
         NSAnimationContext.runAnimationGroup({ context in
+            simpleAnimateLayer(\.opacity, from: 0.0, to: 1.0, duration: 0.75)
+
             let rotation = CABasicAnimation(keyPath: "transform")
             rotation.duration = 0.75
             rotation.repeatCount = 0
@@ -321,12 +338,14 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
             rotation.valueFunction = CAValueFunction(name: .rotateZ)
             rotation.fromValue = CGFloat(-Double.pi)
             rotation.toValue = angle
-            self.layer!.transform = CATransform3DRotate(self.layer!.transform, angle, 0, 0, 1.0)
+            self.layer?.transform = CATransform3DRotate(self.layer!.transform, angle, 0, 0, 1.0)
             self.layer?.add(rotation, forKey: "transform.rotation.z")
         }, completionHandler: {
-            self.layer?.affineTransform()
             self.btnClose.buttonAnime(duration: 5.0)
-
+            self.btnClose.layer?.shadowOpacity = 1.0
+            self.btnClose.layer?.shadowOffset = CGSize(width: 0, height: 0)
+            self.btnClose.layer?.shadowRadius = 3.0
+            
             if (self.responds(to: #selector(MTPopupWindowDelegate.didShowMTPopupWindow(sender:)))) {
                     self.delegate!.didShowMTPopupWindow!(sender: self)
            }
@@ -334,21 +353,20 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
         
         fauxView.removeFromSuperview()
         self.bgView?.addSubview(self)
-
         self.layoutMaximizeInView(v: self.bgView!, insetSize: kWindowMarginSize)
-        self.dimView?.layer?.backgroundColor = (NSColor.init(cgColor: CGColor(srgbRed: 0.0, green: 0.0, blue: 0.0, alpha: 0.5)) as! CGColor)
+        self.dimView?.layer?.backgroundColor = .clear
         self.webView.alphaValue = 1.0
         self.alphaValue = 1.0
-     }
+    }
     
     @objc func closePopupWindow () {
-
+        
         if (self.responds(to: #selector(MTPopupWindowDelegate.willCloseMTPopupWindow(sender:)))) {
             delegate!.willCloseMTPopupWindow!(sender: self)
         }
         
         playClickSound()
-
+        
         NSAnimationContext.runAnimationGroup({ context in
             let rotation = CABasicAnimation(keyPath: "transform")
             rotation.duration = 0.75
@@ -359,7 +377,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
             rotation.toValue = CGFloat(-Double.pi)
             self.layer?.transform = CATransform3DRotate(self.layer!.transform, angle, 0, 0, 1.0)
             self.layer?.add(rotation, forKey: "transform.rotation.z")
-
+ 
             // Delaying removing self from superview removes annoying scene flash.
             // Deadline has to be less than rotation.duration.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -400,6 +418,8 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        
+        showAlert("Web Navigation", details: error.localizedDescription)
     }
     
     func webView (webView: WKWebView, request: NSURLRequest, navigationType: WKNavigationType) -> Bool {
@@ -485,7 +505,7 @@ class MTPopupWindow: NSView, WKUIDelegate, WKNavigationDelegate, NSApplicationDe
 fileprivate class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
     var closeBtnTopInset: CGFloat = 0
     var closeBtnRightInset: CGFloat = 0
-    
+
     func buttonInView (v : NSView) -> NSButton {
         let closeBtnTopOffset: CGFloat = 5 + closeBtnTopInset
         let closeBtnOffset : CGFloat = 5 + closeBtnRightInset
@@ -516,21 +536,12 @@ fileprivate class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
     // Draw the window close button
     override func draw (_ rect: CGRect) {
         let line = NSBezierPath()
-        let oval1 = NSBezierPath()
+        let oval = NSBezierPath()
         
-        oval1.appendOval(in: rect.insetBy(dx: 0, dy: 0))
-        NSColor.init(calibratedRed: 0.0, green: 0.0, blue: 5.0, alpha: 1).setFill()
-        oval1.fill()
-        
-        let oval2 = NSBezierPath()
-        oval2.appendOval(in: rect.insetBy(dx: 5, dy: 5))
-        NSColor.init(calibratedRed: 0.0, green: 0.7, blue: 0.7, alpha: 1.0).setFill()
-        oval2.fill()
-
-        let oval3 = NSBezierPath()
-        oval3.appendOval(in: rect.insetBy(dx: 8, dy: 8))
-        NSColor.init(calibratedRed: 0.8, green: 0.8, blue: 0.2, alpha: 1).setFill()
-        oval3.fill()
+        oval.appendOval(in: rect.insetBy(dx: 5, dy: 5))
+        NSColor.init(calibratedRed: 0.0, green: 0.0, blue: 0.0, alpha: 1).setStroke()
+        oval.lineWidth = 3
+        oval.stroke()
 
         NSColor.init(calibratedRed: 1, green: 0, blue: 0, alpha: 1).setStroke()
         line.lineWidth = 3
@@ -547,7 +558,7 @@ fileprivate class MTPopupWindowCloseButton : NSButton, MTPopupWindowDelegate {
 }
 
 fileprivate extension NSView {
-
+    
     func layoutMaximizeInView (v : NSView, inset : CGFloat) {
         self.layoutMaximizeInView (v: v, insetSize: CGSize(width: inset, height: inset))
     }
@@ -605,22 +616,27 @@ fileprivate extension NSView {
     
     // Do a spring dance for the close button when it first appears
     func buttonAnime (duration: TimeInterval = 5.0) {
+        
         NSAnimationContext.runAnimationGroup({ context in
-            
             let animation = CAKeyframeAnimation(keyPath: "transform")
             animation.beginTime = CACurrentMediaTime()
-            animation.duration = 0.13
-            animation.repeatCount = 3
-            animation.autoreverses = true
-
+            animation.duration = 1.0
+            animation.repeatCount = 0
+            animation.autoreverses = false
+            animation.keyTimes = [0.0,0.2,0.4,0.6,0.8,1.0]
+            animation.calculationMode = .cubic
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animation.values = [
-                NSValue(caTransform3D: CATransform3DMakeScale(0.85, 0.85, 0.85)),
-                NSValue(caTransform3D: CATransform3DMakeScale(1.5, 1.5, 1.5))
+                NSValue(caTransform3D: CATransform3DMakeScale(0.9, 0.9, 0.9)),
+                NSValue(caTransform3D: CATransform3DMakeScale(1.5, 1.5, 1.5)),
+                NSValue(caTransform3D: CATransform3DMakeScale(0.9, 0.9, 0.9)),
+                NSValue(caTransform3D: CATransform3DMakeScale(1.3, 1.3, 1.3)),
+                NSValue(caTransform3D: CATransform3DMakeScale(0.9, 0.9, 0.9)),
+                NSValue(caTransform3D: CATransform3DMakeScale(1.0, 1.0, 1.0)),
             ]
 
             self.layer?.add(animation, forKey: "transform")
         }, completionHandler: {
-            self.layer?.affineTransform()
         })
 
     }
